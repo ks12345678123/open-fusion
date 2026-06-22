@@ -50,7 +50,7 @@ Open-Fusion 输出结果
 | 查询 Agent | 原型完成 | 已实现 DeepSeek API 调用、固定 prompt、JSON schema 校验和失败重试 |
 | 查询执行器 | 原型完成 | 已实现 QueryPlan 到 object_map 的 top-k 查询、类别匹配和基础空间关系评分 |
 | 查询可视化 | 原型完成 | 已实现 result.ply / result.png / visualization.json 输出 |
-| 实验基准 | Seed 原型完成 | 已实现 benchmark runner，并建立 Replica office0 的 6 条 seed 查询集 |
+| 实验基准 | Auto Seed 完成 | 已实现 benchmark runner、limit 冒烟测试和 Replica 8 场景 160 条自动候选查询集 |
 
 ## 3. 总体系统方案
 
@@ -567,7 +567,7 @@ QueryPlan -> 3D object candidates
 
 任务：
 
-- [ ] 构建 160 条以上 Replica 查询集
+- [x] 构建 160 条以上 Replica 自动候选查询集
 - [ ] 人工标注期望结果
 - [x] 跑 seed baseline
 - [x] 跑 seed LLM 解析实验
@@ -771,6 +771,136 @@ replica_room2:   22 objects
 ```text
 开始第 5 阶段：实验集与消融实验。
 目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
+```
+
+### 2026-06-23：Replica 全场景 Auto Benchmark
+
+已新增代码：
+
+```text
+openfusion_agent/benchmark_generator.py
+```
+
+已新增数据文件：
+
+```text
+benchmarks/replica_auto_seed_queries.jsonl
+```
+
+已修改：
+
+```text
+openfusion_agent/benchmark.py
+```
+
+主要功能：
+
+```text
+1. benchmark.py 新增 --limit 参数，用于小样本 LLM 冒烟测试。
+2. benchmark_generator.py 可从 outputs/object_maps/replica_*_object_map.json 自动生成查询集。
+3. 每个场景默认生成 20 条 query，覆盖 category、functional、spatial_relation 三类。
+4. 每条样本写入 annotation_source 和 review_status，明确区分自动候选标注和人工确认标注。
+5. 空间关系样本先执行一次 QueryPlan，只保留有结果的关系查询。
+```
+
+数据准备：
+
+```text
+重新运行 replica_office1、office2、office3、office4、room0、room1、room2，补齐 semantic_label_map.json。
+随后重建 8 个 Replica 场景的 object_map。
+```
+
+重建后的对象数量：
+
+```text
+replica_office0: 25 objects
+replica_office1: 21 objects
+replica_office2: 26 objects
+replica_office3: 37 objects
+replica_office4: 25 objects
+replica_room0:   38 objects
+replica_room1:   28 objects
+replica_room2:   22 objects
+```
+
+标签检查：
+
+```text
+8 个场景的 object_map 均已使用真实语义标签。
+Fallback semantic_color_* 数量为 0。
+```
+
+自动候选查询集规模：
+
+```text
+总数: 160 queries
+场景: 8
+每场景: 20 queries
+category: 94
+functional: 40
+spatial_relation: 26
+review_status: auto_unreviewed
+```
+
+生成命令：
+
+```powershell
+docker --context desktop-linux run --rm -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.benchmark_generator --object-map-dir outputs/object_maps --output benchmarks/replica_auto_seed_queries.jsonl --cases-per-scene 20 --pretty
+```
+
+固定 QueryPlan benchmark：
+
+```powershell
+docker --context desktop-linux run --rm -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.benchmark --benchmark benchmarks/replica_auto_seed_queries.jsonl --output-dir outputs/benchmarks/replica_auto_seed --pretty
+```
+
+结果：
+
+```text
+num_cases: 160
+has_result: 1.0
+top1_label_match: 1.0
+topk_label_match: 1.0
+top1_object_match: 1.0
+topk_object_match: 1.0
+reference_id_match: 1.0
+reference_label_match: 1.0
+avg_latency_ms: 0.126
+```
+
+DeepSeek LLM 冒烟测试：
+
+```powershell
+docker --context desktop-linux run --rm -e DEEPSEEK_API_KEY=$env:DEEPSEEK_API_KEY -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.benchmark --benchmark benchmarks/replica_auto_seed_queries.jsonl --output-dir outputs/benchmarks/replica_auto_seed_llm20 --use-llm --labels "vase,table,tv shelf,curtain,wall,floor,ceiling,door,tv,room plant,light,sofa,cushion,wall paint,chair" --limit 20 --pretty
+```
+
+结果：
+
+```text
+num_cases: 20
+has_result: 1.0
+top1_label_match: 1.0
+topk_label_match: 1.0
+top1_object_match: 1.0
+topk_object_match: 1.0
+reference_id_match: 1.0
+reference_label_match: 1.0
+avg_latency_ms: 820.809
+```
+
+当前限制：
+
+```text
+160 条查询目前是自动候选标注，用于开发验证和论文实验集初稿。
+正式论文实验前仍需逐条人工复核 expected_object_ids、expected_reference_ids 和查询文本合理性。
+```
+
+下一步：
+
+```text
+1. 为 auto_unreviewed 样本增加人工审核字段和审核脚本。
+2. 按 category / functional / spatial_relation 分层抽样检查。
+3. 在人工确认后跑完整 DeepSeek 160 条端到端 benchmark。
 ```
 
 ### 2026-06-23：Seed Benchmark 原型

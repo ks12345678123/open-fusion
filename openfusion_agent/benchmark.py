@@ -177,8 +177,11 @@ def run_benchmark(
     use_llm: bool = False,
     labels: Optional[List[str]] = None,
     model: str = "deepseek-v4-flash",
+    limit: Optional[int] = None,
 ) -> Dict:
     cases = read_jsonl(benchmark_path)
+    if limit is not None:
+        cases = cases[: max(0, limit)]
     output_dir.mkdir(parents=True, exist_ok=True)
     parser = DeepSeekQueryParser(model=model) if use_llm else None
     scored = []
@@ -226,6 +229,7 @@ def parse_args():
     parser.add_argument("--use-llm", action="store_true", help="Parse queries with DeepSeek instead of fixed plans.")
     parser.add_argument("--labels", default="", help="Comma-separated labels for LLM parsing.")
     parser.add_argument("--model", default="deepseek-v4-flash")
+    parser.add_argument("--limit", type=int, default=None, help="Run only the first N benchmark cases.")
     parser.add_argument("--pretty", action="store_true")
     return parser.parse_args()
 
@@ -238,6 +242,7 @@ def main():
         use_llm=args.use_llm,
         labels=parse_labels(args.labels),
         model=args.model,
+        limit=args.limit,
     )
     if args.pretty:
         print(json.dumps(summary, ensure_ascii=False, indent=2))

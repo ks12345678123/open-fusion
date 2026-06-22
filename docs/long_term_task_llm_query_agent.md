@@ -49,6 +49,7 @@ Open-Fusion 输出结果
 | 对象级地图 | 原型完成 | 已实现语义颜色分组 + DBSCAN 聚类，Replica 8 个场景均可生成对象候选 |
 | 查询 Agent | 原型完成 | 已实现 DeepSeek API 调用、固定 prompt、JSON schema 校验和失败重试 |
 | 查询执行器 | 原型完成 | 已实现 QueryPlan 到 object_map 的 top-k 查询、类别匹配和基础空间关系评分 |
+| 查询可视化 | 原型完成 | 已实现 result.ply / result.png / visualization.json 输出 |
 | 实验基准 | 未开始 | 需要构造查询集和标注结果 |
 
 ## 3. 总体系统方案
@@ -205,7 +206,7 @@ openfusion_agent/
   spatial_relations.py
   visualizer.py
   benchmark.py
-  demo_query.py
+  run_query.py
 ```
 
 ### 5.1 `llm_parser.py`
@@ -545,10 +546,10 @@ QueryPlan -> 3D object candidates
 
 任务：
 
-- [ ] 高亮目标对象点云
-- [ ] 输出 result.ply
-- [ ] 输出 result.png
-- [ ] 生成查询结果报告
+- [x] 高亮目标对象点云
+- [x] 输出 result.ply
+- [x] 输出 result.png
+- [x] 生成查询结果报告
 
 验收标准：
 
@@ -696,18 +697,18 @@ benchmarks/cache/
 建议立刻开始：
 
 ```text
-第 4 阶段：可视化系统
+第 5 阶段：实验集与消融实验
 ```
 
 最小可行目标：
 
 ```text
-输入：QueryPlan 查询结果 + object_map.json + objects.ply
-输出：高亮目标对象的 result.ply / result.png
-记录：query_result.json
+输入：Replica 8 个场景 + 已实现的查询 Agent 闭环
+输出：160 条以上查询 benchmark、人工标注和初步指标统计
+记录：benchmarks/replica_queries.jsonl
 ```
 
-完成这个后，就可以形成“自然语言 -> LLM 解析 -> 3D 对象查询 -> 可视化结果”的最小闭环。
+完成这个后，就可以从系统演示进入论文实验评估。
 
 ## 13. 开发记录
 
@@ -768,8 +769,8 @@ replica_room2:   22 objects
 下一步：
 
 ```text
-开始第 4 阶段：可视化系统。
-目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
+开始第 5 阶段：实验集与消融实验。
+目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
 ```
 
 ### 2026-06-23：查询执行器原型
@@ -815,8 +816,8 @@ near semantic_color_001：默认 1.5m 阈值下无满足候选，行为符合过
 下一步：
 
 ```text
-开始第 4 阶段：可视化系统。
-目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
+开始第 5 阶段：实验集与消融实验。
+目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
 ```
 
 ### 2026-06-23：DeepSeek 查询 Agent 原型
@@ -887,6 +888,85 @@ docker --context desktop-linux run --rm -e DEEPSEEK_API_KEY=$env:DEEPSEEK_API_KE
 下一步：
 
 ```text
-开始第 4 阶段：可视化系统。
-目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
+开始第 5 阶段：实验集与消融实验。
+目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
+```
+
+### 2026-06-23：查询结果可视化原型
+
+已新增代码：
+
+```text
+openfusion_agent/visualizer.py
+openfusion_agent/run_query.py
+```
+
+已修改：
+
+```text
+openfusion_agent/object_map.py
+openfusion_agent/query_executor.py
+```
+
+主要功能：
+
+```text
+1. object_map 中新增 visual_rgb 字段，用于稳定关联 object_id 和 objects.ply 中的点。
+2. query_executor 新增 --output 参数，可保存查询结果 JSON。
+3. visualizer.py 可读取 query_result.json、object_map.json 和 objects.ply。
+4. 查询目标对象以红/橙/黄高亮，空间关系参考对象以青色高亮，其余对象以灰色上下文显示。
+5. 输出 highlight.ply、highlight.png 和 visualization.json。
+6. run_query.py 将 LLM 解析、查询执行和可视化串成一个命令行闭环。
+```
+
+离线闭环验证命令：
+
+```powershell
+docker --context desktop-linux run --rm -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.run_query --plan-file outputs/query_results/office0_color_query_plan.json --object-map outputs/object_maps/replica_office0_object_map.json --output-dir outputs/query_results --prefix office0_demo_query --pretty
+```
+
+验证输出：
+
+```text
+outputs/query_results/office0_demo_query_plan.json
+outputs/query_results/office0_demo_query_result.json
+outputs/query_results/office0_demo_query_highlight.ply
+outputs/query_results/office0_demo_query_highlight.png
+outputs/query_results/office0_demo_query_visualization.json
+```
+
+真实 API 闭环验证：
+
+```powershell
+docker --context desktop-linux run --rm -e DEEPSEEK_API_KEY=$env:DEEPSEEK_API_KEY -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.run_query --query "find semantic_color_000 closest to semantic_color_001" --labels "semantic_color_000,semantic_color_001,semantic_color_002,semantic_color_003" --object-map outputs/object_maps/replica_office0_object_map.json --output-dir outputs/query_results --prefix office0_api_full_pipeline --pretty
+```
+
+验证结果：
+
+```text
+DeepSeek plan:
+target = semantic_color_000
+relation = closest_to semantic_color_001
+
+Query executor:
+selected_object_ids = [0, 2, 1]
+reference_object_ids = [4]
+
+Visualization:
+outputs/query_results/office0_api_full_pipeline_highlight.ply
+outputs/query_results/office0_api_full_pipeline_highlight.png
+```
+
+当前限制：
+
+```text
+当前示例仍基于旧 Replica 输出生成的 semantic_color_000 等占位标签。
+真实自然语言到真实类别名的闭环，需要重新运行至少一个场景以生成 semantic_label_map.json，再重新构建 object_map。
+```
+
+下一步：
+
+```text
+开始第 5 阶段：实验集与消融实验。
+目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
 ```

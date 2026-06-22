@@ -147,6 +147,7 @@ def parse_args():
     parser.add_argument("--plan", default=None, help="QueryPlan JSON string.")
     parser.add_argument("--plan-file", default=None, help="Path to QueryPlan JSON file.")
     parser.add_argument("--near-threshold", type=float, default=1.5)
+    parser.add_argument("--output", default=None, help="Optional path to save the query result JSON.")
     parser.add_argument("--pretty", action="store_true")
     return parser.parse_args()
 
@@ -156,6 +157,11 @@ def main():
     plan = load_plan(args.plan, args.plan_file)
     executor = ObjectMapQueryExecutor(Path(args.object_map), near_threshold=args.near_threshold)
     result = executor.execute(plan)
+    if args.output:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
     if args.pretty:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

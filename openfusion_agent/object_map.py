@@ -24,6 +24,7 @@ class ObjectCandidate:
     bbox_max: List[float]
     bbox_size: List[float]
     confidence: float
+    visual_rgb: List[int]
 
 
 def _rgb_tuple(color: Iterable[float]) -> Rgb:
@@ -133,6 +134,7 @@ def build_object_map(
             bbox_size = bbox_max - bbox_min
             centroid = cluster_points.mean(axis=0)
             confidence = min(1.0, len(cluster_points) / max(1, count))
+            obj_color = stable_object_color(object_id)
             obj = ObjectCandidate(
                 object_id=object_id,
                 scene=scene,
@@ -145,10 +147,10 @@ def build_object_map(
                 bbox_max=[round(float(v), 5) for v in bbox_max],
                 bbox_size=[round(float(v), 5) for v in bbox_size],
                 confidence=round(float(confidence), 5),
+                visual_rgb=[int(round(channel * 255)) for channel in obj_color],
             )
             objects.append(obj)
 
-            obj_color = stable_object_color(object_id)
             vis_points.append(cluster_points)
             vis_colors.append(np.repeat(obj_color[None, :], len(cluster_points), axis=0))
             object_id += 1

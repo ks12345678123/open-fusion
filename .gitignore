@@ -9,6 +9,9 @@ cache/*
 */cache*/
 tmp*.py
 *pickle
+outputs/
+*_object_map.json
+*_objects.ply
 sample/*
 icl_*/*
 replica_*/*

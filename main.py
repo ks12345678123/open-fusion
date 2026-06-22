@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import time
 import numpy as np
@@ -7,9 +8,30 @@ import open3d as o3d
 from openfusion.slam import build_slam, BaseSLAM
 from openfusion.datasets import Dataset
 from openfusion.utils import (
-    show_pc, save_pc, get_cmap_legend
+    show_pc, save_pc, get_cmap_legend, rand_cmap
 )
 from configs.build import get_config
+
+
+DEFAULT_SEMANTIC_QUERIES = [
+    "vase", "table", "tv shelf", "curtain", "wall", "floor", "ceiling", "door", "tv",
+    "room plant", "light", "sofa", "cushion", "wall paint", "chair"
+]
+
+
+def save_semantic_label_map(cmap, labels, save_path):
+    label_map = {
+        "labels": [
+            {
+                "index": idx,
+                "name": label,
+                "rgb": [int(round(channel * 255)) for channel in cmap(idx)[:3]],
+            }
+            for idx, label in enumerate(labels)
+        ]
+    }
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(label_map, f, ensure_ascii=False, indent=2)
 
 
 def stream_loop(args, slam:BaseSLAM):
@@ -108,10 +130,13 @@ def main():
     if args.algo in ["cfusion", "vlfusion"]:
         # points, colors = slam.query("Window", topk=3)
         # points, colors = slam.query("there is a stainless steel fridge in the ketchen", topk=3)
-        points, colors = slam.semantic_query([
-            "vase", "table", "tv shelf", "curtain", "wall", "floor", "ceiling", "door", "tv",
-            "room plant", "light", "sofa", "cushion", "wall paint", "chair"
-        ])
+        cmap = rand_cmap(len(DEFAULT_SEMANTIC_QUERIES), type="bright", first_color_black=False)
+        save_semantic_label_map(
+            cmap,
+            DEFAULT_SEMANTIC_QUERIES,
+            f"{args.data}_{args.scene}/semantic_label_map.json",
+        )
+        points, colors = slam.semantic_query(DEFAULT_SEMANTIC_QUERIES, cmap=cmap)
         if not args.no_vis:
             show_pc(points, colors, slam.point_state.poses)
         save_pc(points, colors, f"{args.data}_{args.scene}/semantic_pc.ply")

@@ -61,6 +61,7 @@ def main():
     parser.add_argument('--stream', action='store_true')
     parser.add_argument('--save', action='store_true')
     parser.add_argument('--load', action='store_true')
+    parser.add_argument('--no-vis', action='store_true', help='Skip Open3D visualization windows.')
     parser.add_argument('--host_ip', type=str, default="YOUR IP") # for stream
     args = parser.parse_args()
 
@@ -111,7 +112,8 @@ def main():
             "vase", "table", "tv shelf", "curtain", "wall", "floor", "ceiling", "door", "tv",
             "room plant", "light", "sofa", "cushion", "wall paint", "chair"
         ])
-        show_pc(points, colors, slam.point_state.poses)
+        if not args.no_vis:
+            show_pc(points, colors, slam.point_state.poses)
         save_pc(points, colors, f"{args.data}_{args.scene}/semantic_pc.ply")
 
 if __name__ == "__main__":

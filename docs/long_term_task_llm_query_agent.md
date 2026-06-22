@@ -50,7 +50,7 @@ Open-Fusion 输出结果
 | 查询 Agent | 原型完成 | 已实现 DeepSeek API 调用、固定 prompt、JSON schema 校验和失败重试 |
 | 查询执行器 | 原型完成 | 已实现 QueryPlan 到 object_map 的 top-k 查询、类别匹配和基础空间关系评分 |
 | 查询可视化 | 原型完成 | 已实现 result.ply / result.png / visualization.json 输出 |
-| 实验基准 | 未开始 | 需要构造查询集和标注结果 |
+| 实验基准 | Seed 原型完成 | 已实现 benchmark runner，并建立 Replica office0 的 6 条 seed 查询集 |
 
 ## 3. 总体系统方案
 
@@ -569,9 +569,9 @@ QueryPlan -> 3D object candidates
 
 - [ ] 构建 160 条以上 Replica 查询集
 - [ ] 人工标注期望结果
-- [ ] 跑 baseline
-- [ ] 跑消融实验
-- [ ] 统计指标
+- [x] 跑 seed baseline
+- [x] 跑 seed LLM 解析实验
+- [x] 统计 seed 指标
 - [ ] 分析失败案例
 
 验收标准：
@@ -771,6 +771,94 @@ replica_room2:   22 objects
 ```text
 开始第 5 阶段：实验集与消融实验。
 目标是构建 Replica 查询 benchmark，并统计查询成功率、Top-k accuracy 和响应时间。
+```
+
+### 2026-06-23：Seed Benchmark 原型
+
+已新增代码：
+
+```text
+openfusion_agent/benchmark.py
+benchmarks/replica_office0_seed_queries.jsonl
+```
+
+已修改：
+
+```text
+.gitignore
+```
+
+主要功能：
+
+```text
+1. 支持 JSONL 查询集。
+2. 每条样本可固定 QueryPlan，保证可复现实验。
+3. 可选 --use-llm，调用 DeepSeek 对自然语言 query 实时解析。
+4. 统计 has_result、Top-1/Top-k label match、Top-1/Top-k object match、reference label match。
+5. 输出 results.jsonl、results.csv 和 summary.json。
+6. latency_ms 在 --use-llm 模式下统计 LLM 解析 + 查询执行的端到端时间。
+```
+
+前置处理：
+
+```text
+重新运行 replica_office0 完整 vlfusion，生成 semantic_label_map.json。
+随后重建 object_map，使对象标签从 semantic_color_000 变为真实类别名，例如 wall、floor、sofa、table、chair、door。
+```
+
+当前 `replica_office0` 对象标签示例：
+
+```text
+sofa: object_id 5
+table: object_id 6, 7, 8, 9, 10
+chair: object_id 11, 12, 13, 14
+door: object_id 19
+room plant: object_id 15
+```
+
+固定 QueryPlan benchmark：
+
+```powershell
+docker --context desktop-linux run --rm -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.benchmark --benchmark benchmarks/replica_office0_seed_queries.jsonl --output-dir outputs/benchmarks/replica_office0_seed --pretty
+```
+
+结果：
+
+```text
+num_cases: 6
+has_result: 1.0
+top1_label_match: 1.0
+topk_label_match: 1.0
+top1_object_match: 1.0
+topk_object_match: 1.0
+reference_label_match: 1.0
+avg_latency_ms: 0.225
+```
+
+真实 DeepSeek LLM benchmark：
+
+```powershell
+docker --context desktop-linux run --rm -e DEEPSEEK_API_KEY=$env:DEEPSEEK_API_KEY -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.benchmark --benchmark benchmarks/replica_office0_seed_queries.jsonl --output-dir outputs/benchmarks/replica_office0_seed_llm --use-llm --labels "vase,table,tv shelf,curtain,wall,floor,ceiling,door,tv,room plant,light,sofa,cushion,wall paint,chair" --pretty
+```
+
+结果：
+
+```text
+num_cases: 6
+has_result: 1.0
+top1_label_match: 1.0
+topk_label_match: 1.0
+top1_object_match: 1.0
+topk_object_match: 1.0
+reference_label_match: 1.0
+avg_latency_ms: 762.541
+```
+
+当前限制：
+
+```text
+当前 benchmark 只有 replica_office0 的 6 条 seed 样本，主要用于验证实验代码链路。
+后续需要扩展到 Replica 8 个场景，每个场景 20 到 30 条 query，形成 160 到 240 条正式查询集。
 ```
 
 ### 2026-06-23：查询执行器原型

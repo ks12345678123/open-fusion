@@ -10,6 +10,7 @@ cache/*
 tmp*.py
 *pickle
 outputs/
+benchmarks/cache/
 *_object_map.json
 *_objects.ply
 sample/*

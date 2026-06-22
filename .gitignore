@@ -11,6 +11,7 @@ tmp*.py
 *pickle
 sample/*
 icl_*/*
+replica_*/*
 openfusion/zoo/xdecoder_seem/checkpoints/*
 
 # compiled files #

@@ -47,8 +47,8 @@ Open-Fusion 输出结果
 | Replica 可视化检查 | 已完成 | 已生成离线总览图，结果无明显异常 |
 | DeepSeek API 测试 | 已完成 | `deepseek-v4-flash` 可正常返回 `OK` |
 | 对象级地图 | 原型完成 | 已实现语义颜色分组 + DBSCAN 聚类，Replica 8 个场景均可生成对象候选 |
-| 查询 Agent | 未开始 | 需要实现自然语言到 JSON 查询解析 |
-| 查询执行器 | 未开始 | 需要实现类别、功能、空间关系查询 |
+| 查询 Agent | 原型完成 | 已实现 DeepSeek API 调用、固定 prompt、JSON schema 校验和失败重试 |
+| 查询执行器 | 原型完成 | 已实现 QueryPlan 到 object_map 的 top-k 查询、类别匹配和基础空间关系评分 |
 | 实验基准 | 未开始 | 需要构造查询集和标注结果 |
 
 ## 3. 总体系统方案
@@ -500,11 +500,11 @@ D 相比 C：复杂空间查询准确率提升
 
 任务：
 
-- [ ] 封装 DeepSeek API 调用
-- [ ] 设计固定 prompt
-- [ ] 设计 JSON schema
-- [ ] 实现 JSON 校验
-- [ ] 测试类别查询、功能查询、空间关系查询
+- [x] 封装 DeepSeek API 调用
+- [x] 设计固定 prompt
+- [x] 设计 JSON schema
+- [x] 实现 JSON 校验
+- [x] 测试类别查询、功能查询、空间关系查询
 
 验收标准：
 
@@ -522,12 +522,12 @@ QueryPlan -> 3D object candidates
 
 任务：
 
-- [ ] 实现类别匹配
-- [ ] 实现功能类别扩展
-- [ ] 实现 near / closest_to
-- [ ] 实现 on / under 初版
-- [ ] 实现 top-k 排序
-- [ ] 输出查询结果 JSON
+- [x] 实现类别匹配
+- [x] 实现功能类别扩展
+- [x] 实现 near / closest_to
+- [x] 实现 on / under 初版
+- [x] 实现 top-k 排序
+- [x] 输出查询结果 JSON
 
 验收标准：
 
@@ -696,18 +696,18 @@ benchmarks/cache/
 建议立刻开始：
 
 ```text
-第 1 阶段：对象级地图原型
+第 4 阶段：可视化系统
 ```
 
 最小可行目标：
 
 ```text
-输入：replica_office0/color_pc.ply 和 semantic_pc.ply
-输出：replica_office0_object_map.json
-可视化：replica_office0_objects.ply
+输入：QueryPlan 查询结果 + object_map.json + objects.ply
+输出：高亮目标对象的 result.ply / result.png
+记录：query_result.json
 ```
 
-完成这个后，就可以接入 DeepSeek 查询 Agent。
+完成这个后，就可以形成“自然语言 -> LLM 解析 -> 3D 对象查询 -> 可视化结果”的最小闭环。
 
 ## 13. 开发记录
 
@@ -768,6 +768,125 @@ replica_room2:   22 objects
 下一步：
 
 ```text
-开始第 2 阶段：DeepSeek 查询 Agent。
-目标是实现自然语言问题到结构化 JSON 查询计划的解析。
+开始第 4 阶段：可视化系统。
+目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
+```
+
+### 2026-06-23：查询执行器原型
+
+已新增代码：
+
+```text
+openfusion_agent/spatial_relations.py
+openfusion_agent/query_executor.py
+```
+
+主要功能：
+
+```text
+1. 读取 object_map.json。
+2. 接收 QueryPlan。
+3. 对 object semantic_label 做类别/同义词匹配。
+4. 支持 near、closest_to、on、under、inside、left_of、right_of、in_front_of、behind 的基础评分。
+5. 输出 top-k JSON 查询结果。
+```
+
+验证方式：
+
+```text
+当前旧 Replica object_map 尚无真实类别名，因此使用 semantic_color_000 等占位标签测试执行逻辑。
+```
+
+测试结果：
+
+```text
+类别查询 semantic_color_000：返回 4 个候选，top-3 正常排序。
+closest_to semantic_color_001：返回 4 个候选，并包含 reference_object_id 和 distance。
+near semantic_color_001：默认 1.5m 阈值下无满足候选，行为符合过滤逻辑。
+```
+
+当前限制：
+
+```text
+已有 Replica 输出是在保存 semantic_label_map.json 之前生成的，因此 object_map 中暂时没有 chair/table/sofa 等真实语义名。
+后续若需要真实自然语言闭环，需要重新运行至少一个场景，生成 semantic_label_map.json 后再构建 object_map。
+```
+
+下一步：
+
+```text
+开始第 4 阶段：可视化系统。
+目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
+```
+
+### 2026-06-23：DeepSeek 查询 Agent 原型
+
+已新增代码：
+
+```text
+openfusion_agent/schemas.py
+openfusion_agent/llm_parser.py
+```
+
+主要功能：
+
+```text
+1. 使用 Python 标准库 urllib 调用 DeepSeek API，不依赖 OpenAI SDK。
+2. 使用环境变量 DEEPSEEK_API_KEY，避免将 API key 写入代码。
+3. 默认模型为 deepseek-v4-flash。
+4. 默认关闭 thinking，降低输出为空或格式不稳定的概率。
+5. 将自然语言查询解析为 QueryPlan JSON。
+6. 支持 JSON markdown 包裹清理、schema 校验、top_k 限制和一次自动修复重试。
+```
+
+QueryPlan 格式：
+
+```json
+{
+  "intent": "find_object",
+  "target": ["chair"],
+  "attributes": [],
+  "relations": [
+    {
+      "type": "near",
+      "object": "table"
+    }
+  ],
+  "top_k": 3
+}
+```
+
+验证命令：
+
+```powershell
+docker --context desktop-linux run --rm -e DEEPSEEK_API_KEY=$env:DEEPSEEK_API_KEY -v E:/OpenFusion:/workspace -w /workspace openfusion:local python -m openfusion_agent.llm_parser --query "找桌子旁边的椅子" --labels "chair,table,sofa,door,light,tv,cabinet,shelf" --top-k 3 --pretty
+```
+
+真实 API 测试结果：
+
+```text
+找桌子旁边的椅子
+-> target: chair
+-> relation: near table
+
+找一个可以坐的地方
+-> target: chair / sofa / bench / stool
+
+找离门最近的灯
+-> target: light / lamp
+-> relation: closest_to door
+
+找出口
+-> target: door
+
+找电视前面的沙发
+-> target: sofa
+-> relation: in_front_of tv
+```
+
+下一步：
+
+```text
+开始第 4 阶段：可视化系统。
+目标是把查询结果中的 object_id 高亮输出为 result.ply 和 result.png。
 ```
